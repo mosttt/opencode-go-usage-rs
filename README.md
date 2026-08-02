@@ -62,8 +62,6 @@
 cp config.example.json config.json
 ```
 
-> 这是不兼容变更：旧 `account.json` 不会被读取。升级时请迁移到 `config.json`，验证成功后安全删除旧文件。
-
 `config.json` 同时保存服务设置、面板鉴权和全部账号：
 
 ```json
