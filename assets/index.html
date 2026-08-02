@@ -1,0 +1,834 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2317202a'/%3E%3Cpath d='M8 8h16v5H13v6h6v-3h5v8H8z' fill='%23f2f0e8'/%3E%3C/svg%3E">
+  <title>OpenCode Go 用量</title>
+  <style>
+    :root {
+      --paper: #f2f0e8;
+      --paper-raised: #fbfaf5;
+      --ink: #17202a;
+      --muted: #687078;
+      --line: #c8c6bc;
+      --line-strong: #8f918b;
+      --signal: #1746d1;
+      --signal-soft: #dce5ff;
+      --ok: #187454;
+      --danger: #b52c35;
+      --shadow: 0 14px 40px rgba(27, 34, 43, 0.08);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; background: var(--paper); }
+    button, summary { font: inherit; }
+    button { color: inherit; }
+    a { color: var(--signal); text-underline-offset: 3px; }
+
+    .shell {
+      width: min(1240px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 34px 0 56px;
+    }
+    .shell.auth-locked > :not(.auth-gate) { display: none; }
+
+    .auth-gate {
+      min-height: calc(100vh - 90px);
+      display: grid;
+      place-items: center;
+      padding: 32px 0;
+    }
+    .auth-card {
+      width: min(520px, 100%);
+      border: 1px solid var(--line-strong);
+      border-top: 4px solid var(--signal);
+      border-radius: 16px;
+      padding: clamp(24px, 6vw, 42px);
+      background: var(--paper-raised);
+      box-shadow: var(--shadow);
+    }
+    .auth-kicker {
+      margin: 0 0 12px;
+      color: var(--signal);
+      font: 700 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .auth-title { margin: 0; font: 700 34px/1.05 Georgia, "Times New Roman", serif; letter-spacing: -0.035em; }
+    .auth-copy { margin: 16px 0 0; color: var(--muted); line-height: 1.65; }
+    .auth-form { margin-top: 26px; }
+    .auth-form label { display: block; margin-bottom: 8px; font-weight: 750; }
+    .auth-key-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+    .auth-input {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--line-strong);
+      border-radius: 10px;
+      padding: 11px 13px;
+      background: white;
+      color: var(--ink);
+      font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      outline: none;
+    }
+    .auth-input:focus { border-color: var(--signal); box-shadow: 0 0 0 3px var(--signal-soft); }
+    .auth-form .auth-remember {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      width: fit-content;
+      margin: 12px 0 0;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .auth-remember input { width: 16px; height: 16px; margin: 0; accent-color: var(--signal); }
+    .auth-error { margin: 12px 0 0; color: var(--danger); font-size: 13px; line-height: 1.5; }
+    .auth-note { margin: 18px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+
+    .masthead {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 24px;
+      align-items: end;
+      padding-bottom: 24px;
+      border-bottom: 2px solid var(--ink);
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      font: 700 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--signal);
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 760px;
+      font: 700 clamp(34px, 6vw, 74px)/0.94 Georgia, "Times New Roman", serif;
+      letter-spacing: -0.045em;
+    }
+
+    .subtitle {
+      max-width: 700px;
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.65;
+    }
+
+    .actions { display: flex; gap: 10px; align-items: center; }
+    .button {
+      appearance: none;
+      border: 1px solid var(--ink);
+      border-radius: 999px;
+      background: var(--paper-raised);
+      padding: 10px 16px;
+      cursor: pointer;
+      font-weight: 700;
+      transition: transform 140ms ease, background 140ms ease;
+    }
+    .button:hover:not(:disabled) { transform: translateY(-1px); background: white; }
+    .button:disabled { opacity: 0.42; cursor: not-allowed; }
+    .button.primary { color: white; background: var(--ink); }
+    .button.primary:hover:not(:disabled) { background: var(--signal); }
+
+    .status-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+      align-items: center;
+      min-height: 42px;
+      padding: 14px 0 0;
+      font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--muted);
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
+    .status-dot.live { background: var(--ok); box-shadow: 0 0 0 4px rgba(24, 116, 84, 0.12); }
+
+    .account-bar {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      margin-top: 18px;
+      padding: 10px;
+      border: 1px solid var(--line-strong);
+      border-radius: 14px;
+      background: #e8e6de;
+    }
+    .account-label {
+      flex: 0 0 auto;
+      padding-left: 6px;
+      color: var(--muted);
+      font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .account-list { display: flex; flex-wrap: wrap; gap: 7px; }
+    .account-button {
+      appearance: none;
+      display: grid;
+      gap: 3px;
+      max-width: min(320px, 100%);
+      border: 1px solid transparent;
+      border-radius: 9px;
+      padding: 9px 13px;
+      background: transparent;
+      cursor: pointer;
+      font-weight: 750;
+      line-height: 1.2;
+      text-align: left;
+    }
+    .account-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .account-email {
+      overflow: hidden;
+      color: var(--muted);
+      font: 500 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .account-button:hover:not(:disabled):not(.active) { border-color: var(--line-strong); background: var(--paper-raised); }
+    .account-button.active { color: white; background: var(--signal); border-color: var(--signal); }
+    .account-button.active .account-email { color: rgba(255, 255, 255, 0.78); }
+    .account-button:disabled { cursor: wait; opacity: 0.62; }
+
+    .quota-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      border: 1px solid var(--line-strong);
+      border-radius: 18px;
+      overflow: hidden;
+      background: var(--paper-raised);
+      box-shadow: var(--shadow);
+      margin-top: 26px;
+    }
+
+    .quota-card { padding: 24px; min-height: 220px; }
+    .quota-card + .quota-card { border-left: 1px solid var(--line); }
+    .quota-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+    .quota-label { font-weight: 800; letter-spacing: -0.02em; }
+    .quota-cap { color: var(--muted); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .quota-value {
+      margin: 28px 0 22px;
+      font: 700 52px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: -0.08em;
+    }
+    .quota-value small { font-size: 18px; letter-spacing: 0; color: var(--muted); }
+    .meter { height: 12px; display: grid; grid-template-columns: repeat(20, 1fr); gap: 3px; }
+    .meter span { border-radius: 2px; background: #deddd5; }
+    .meter span.on { background: var(--signal); }
+    .quota-card.limited .meter span.on { background: var(--danger); }
+    .quota-meta { margin-top: 18px; display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+    .quota-meta code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); }
+
+    .records {
+      margin-top: 34px;
+      border-top: 2px solid var(--ink);
+      padding-top: 20px;
+    }
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: end;
+      margin-bottom: 14px;
+    }
+    h2 { margin: 0; font: 700 27px/1.1 Georgia, "Times New Roman", serif; letter-spacing: -0.025em; }
+    .section-copy { margin: 7px 0 0; color: var(--muted); font-size: 13px; }
+    .pager { display: flex; align-items: center; gap: 8px; }
+    .page-label { min-width: 72px; text-align: center; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line-strong);
+      border-radius: 14px;
+      background: var(--paper-raised);
+      box-shadow: var(--shadow);
+    }
+    table { width: 100%; min-width: 990px; border-collapse: collapse; }
+    th {
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line-strong);
+      text-align: left;
+      color: var(--muted);
+      font: 700 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: #eeece4;
+    }
+    td { padding: 13px 14px; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: top; }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: #f5f7ff; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .muted { color: var(--muted); }
+    .model { font-weight: 750; white-space: nowrap; }
+    .plan {
+      display: inline-flex;
+      margin-top: 5px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 2px 7px;
+      color: var(--muted);
+      font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-transform: uppercase;
+    }
+    details { min-width: 108px; }
+    summary { list-style: none; cursor: pointer; color: var(--signal); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: " +"; color: var(--muted); }
+    details[open] summary::after { content: " −"; }
+    .breakdown {
+      margin-top: 9px;
+      min-width: 230px;
+      padding: 12px;
+      border: 1px solid var(--ink);
+      border-radius: 10px;
+      background: white;
+      box-shadow: 0 8px 20px rgba(23, 32, 42, 0.09);
+      display: grid;
+      gap: 7px;
+    }
+    .breakdown div { display: flex; justify-content: space-between; gap: 16px; }
+    .breakdown span:first-child { color: var(--muted); }
+
+    .empty, .error {
+      padding: 44px 24px;
+      text-align: center;
+      color: var(--muted);
+    }
+    .error { color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger), transparent 55%); background: #fff3f3; border-radius: 12px; margin-top: 24px; }
+    .hidden { display: none !important; }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      margin-top: 26px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    @media (max-width: 850px) {
+      .masthead { grid-template-columns: 1fr; align-items: start; }
+      .actions { justify-content: flex-start; }
+      .quota-grid { grid-template-columns: 1fr; }
+      .quota-card + .quota-card { border-left: 0; border-top: 1px solid var(--line); }
+      .section-head { align-items: start; flex-direction: column; }
+      .account-bar { align-items: flex-start; flex-direction: column; gap: 8px; }
+    }
+    @media (max-width: 560px) {
+      .shell { width: min(100% - 20px, 1240px); padding-top: 20px; }
+      .auth-gate { min-height: calc(100vh - 40px); padding: 16px 0; }
+      .auth-key-row { grid-template-columns: 1fr; }
+      .quota-card { padding: 20px; min-height: 200px; }
+      .quota-value { font-size: 44px; }
+      footer { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell auth-locked" id="app-shell">
+    <section class="auth-gate" id="auth-gate" aria-labelledby="auth-title">
+      <div class="auth-card">
+        <p class="auth-kicker">OpenCode Go / Protected Panel</p>
+        <h2 class="auth-title" id="auth-title">验证面板访问权限</h2>
+        <p class="auth-copy" id="auth-status">正在检查当前浏览器会话…</p>
+        <form class="auth-form hidden" id="auth-form">
+          <label for="panel-key">面板 Key</label>
+          <div class="auth-key-row">
+            <input class="auth-input" id="panel-key" name="panel-key" type="password" autocomplete="off" maxlength="256" spellcheck="false" required>
+            <button class="button primary" id="auth-submit" type="submit">进入面板</button>
+          </div>
+          <label class="auth-remember" for="remember-key">
+            <input id="remember-key" name="remember-key" type="checkbox">
+            <span>记住 Key（30 天）</span>
+          </label>
+        </form>
+        <p class="auth-error hidden" id="auth-error" role="alert"></p>
+        <p class="auth-note">Key 只发送到当前服务用于建立 HttpOnly 会话，不会写入 URL 或浏览器本地存储。</p>
+      </div>
+    </section>
+
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">OpenCode Go / Usage Relay</p>
+        <p class="subtitle">服务端为每个账号使用独立 OpenCode Cookie、连接池和缓存抓取官方控制台。Cookie 不会发送到浏览器端，页面仅展示账号邮箱、用量摘要和请求记录。</p>
+      </div>
+      <div class="actions">
+        <a class="button" id="json-link" href="/api/v1/usage?page=0" target="_blank" rel="noreferrer">查看 JSON</a>
+        <button class="button hidden" id="logout" type="button">退出面板</button>
+        <button class="button primary" id="refresh" type="button">立即刷新</button>
+      </div>
+    </header>
+
+    <div class="status-row">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">正在连接本地服务…</span>
+      <span id="workspace"></span>
+      <span id="subscription-meta"></span>
+    </div>
+
+    <section class="account-bar" aria-label="OpenCode 账号">
+      <span class="account-label">账号</span>
+      <div class="account-list" id="account-list">
+        <button class="account-button" type="button" disabled>正在读取账号…</button>
+      </div>
+    </section>
+
+    <section class="quota-grid" aria-label="Go 用量窗口">
+      <article class="quota-card" id="card-five_hours"></article>
+      <article class="quota-card" id="card-seven_days"></article>
+      <article class="quota-card" id="card-one_month"></article>
+    </section>
+
+    <div class="error hidden" id="error" role="alert"></div>
+
+    <section class="records">
+      <div class="section-head">
+        <div>
+          <h2>请求使用记录</h2>
+          <p class="section-copy">与官网一致，每页最多 50 条。点击输入 Token 可查看缓存读取和缓存写入明细。</p>
+        </div>
+        <nav class="pager" aria-label="记录分页">
+          <button class="button" id="previous" type="button">上一页</button>
+          <span class="page-label" id="page-label">第 1 页</span>
+          <button class="button" id="next" type="button">下一页</button>
+        </nav>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>模型</th>
+              <th>输入 Token</th>
+              <th>输出 Token</th>
+              <th>费用</th>
+              <th>会话</th>
+            </tr>
+          </thead>
+          <tbody id="records-body">
+            <tr><td colspan="6" class="empty">正在读取官网记录…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer>
+      <span>7d 按官网“每周”周期展示；1 个月按订阅周期展示，并非自行估算的滚动窗口。</span>
+      <a href="https://opencode.ai/docs/zh-cn/go/" target="_blank" rel="noreferrer">OpenCode Go 官方文档</a>
+    </footer>
+  </main>
+
+  <script>
+    const state = {
+      accountId: null,
+      accounts: [],
+      page: 0,
+      loading: false,
+      latest: null,
+      authRequired: false,
+      authenticated: false,
+    };
+    const number = new Intl.NumberFormat("zh-CN");
+    const dateTime = new Intl.DateTimeFormat("zh-CN", {
+      month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+    });
+
+    const elements = {
+      shell: document.querySelector("#app-shell"),
+      authGate: document.querySelector("#auth-gate"),
+      authStatus: document.querySelector("#auth-status"),
+      authForm: document.querySelector("#auth-form"),
+      panelKey: document.querySelector("#panel-key"),
+      rememberKey: document.querySelector("#remember-key"),
+      authSubmit: document.querySelector("#auth-submit"),
+      authError: document.querySelector("#auth-error"),
+      logout: document.querySelector("#logout"),
+      refresh: document.querySelector("#refresh"),
+      jsonLink: document.querySelector("#json-link"),
+      accountList: document.querySelector("#account-list"),
+      previous: document.querySelector("#previous"),
+      next: document.querySelector("#next"),
+      pageLabel: document.querySelector("#page-label"),
+      recordsBody: document.querySelector("#records-body"),
+      error: document.querySelector("#error"),
+      statusDot: document.querySelector("#status-dot"),
+      statusText: document.querySelector("#status-text"),
+      workspace: document.querySelector("#workspace"),
+      subscriptionMeta: document.querySelector("#subscription-meta"),
+    };
+
+    function node(tag, className, text) {
+      const value = document.createElement(tag);
+      if (className) value.className = className;
+      if (text !== undefined) value.textContent = text;
+      return value;
+    }
+
+    function resetPrivateView() {
+      state.accountId = null;
+      state.accounts = [];
+      state.page = 0;
+      state.latest = null;
+      state.loading = false;
+      elements.workspace.textContent = "";
+      elements.subscriptionMeta.textContent = "";
+      elements.statusDot.classList.remove("live");
+      renderAccounts();
+      clearUsageView();
+    }
+
+    function lockDashboard(message, error = "") {
+      state.authenticated = false;
+      resetPrivateView();
+      elements.shell.classList.add("auth-locked");
+      elements.authGate.classList.remove("hidden");
+      elements.authStatus.textContent = message;
+      elements.authForm.classList.toggle("hidden", !state.authRequired);
+      elements.authError.textContent = error;
+      elements.authError.classList.toggle("hidden", !error);
+      elements.logout.classList.add("hidden");
+      if (state.authRequired) requestAnimationFrame(() => elements.panelKey.focus());
+    }
+
+    function unlockDashboard() {
+      state.authenticated = true;
+      elements.shell.classList.remove("auth-locked");
+      elements.authGate.classList.add("hidden");
+      elements.authError.classList.add("hidden");
+      elements.logout.classList.toggle("hidden", !state.authRequired);
+    }
+
+    function isPanelAuthFailure(response, body) {
+      return response.status === 401 && body.error?.code === "panel_authentication_required";
+    }
+
+    async function checkPanelAuth() {
+      try {
+        const response = await fetch("/api/v1/auth", { cache: "no-store" });
+        const body = await response.json();
+        if (!response.ok) throw new Error("无法检查面板访问权限");
+        state.authRequired = body.required;
+        if (!body.authenticated) {
+          lockDashboard("此面板已启用访问保护，请输入 Key。", "");
+          return;
+        }
+        unlockDashboard();
+        await initialize();
+      } catch (error) {
+        lockDashboard(
+          "无法连接面板鉴权服务。",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+
+    async function submitPanelKey(event) {
+      event.preventDefault();
+      const key = elements.panelKey.value.trim();
+      if (!key) return;
+      elements.authSubmit.disabled = true;
+      elements.authError.classList.add("hidden");
+      try {
+        const response = await fetch("/api/v1/auth", {
+          method: "POST",
+          cache: "no-store",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ key, remember: elements.rememberKey.checked }),
+        });
+        const body = await response.json();
+        if (!response.ok || !body.authenticated) {
+          throw new Error(body.error?.message || "面板 Key 无效");
+        }
+        state.authRequired = body.required;
+        elements.panelKey.value = "";
+        unlockDashboard();
+        await initialize();
+      } catch (error) {
+        elements.authError.textContent = error instanceof Error ? error.message : String(error);
+        elements.authError.classList.remove("hidden");
+        elements.panelKey.select();
+      } finally {
+        elements.authSubmit.disabled = false;
+      }
+    }
+
+    async function logoutPanel() {
+      elements.logout.disabled = true;
+      try {
+        await fetch("/api/v1/auth", { method: "DELETE", cache: "no-store" });
+      } finally {
+        elements.logout.disabled = false;
+        state.authRequired = true;
+        elements.rememberKey.checked = false;
+        lockDashboard("已退出面板，请重新输入 Key。", "");
+      }
+    }
+
+    function updateJsonLink() {
+      const query = new URLSearchParams({ page: "0" });
+      if (state.accountId) query.set("account", state.accountId);
+      elements.jsonLink.href = `/api/v1/usage?${query}`;
+    }
+
+    function renderAccounts() {
+      elements.accountList.replaceChildren();
+      for (const account of state.accounts) {
+        const button = node("button", "account-button");
+        const email = node("span", "account-email", account.email || "邮箱暂不可用");
+        email.title = account.email || "邮箱暂不可用";
+        button.append(node("span", "account-name", account.name), email);
+        button.type = "button";
+        button.dataset.accountId = account.id;
+        button.classList.toggle("active", account.id === state.accountId);
+        button.setAttribute("aria-pressed", account.id === state.accountId ? "true" : "false");
+        button.disabled = state.loading;
+        button.addEventListener("click", () => selectAccount(account.id));
+        elements.accountList.append(button);
+      }
+    }
+
+    function clearUsageView() {
+      for (const id of ["five_hours", "seven_days", "one_month"]) {
+        const card = document.querySelector(`#card-${id}`);
+        card.replaceChildren(node("div", "empty", "正在读取该账号用量…"));
+      }
+      const row = node("tr");
+      const cell = node("td", "empty", "正在读取该账号请求记录…");
+      cell.colSpan = 6;
+      row.append(cell);
+      elements.recordsBody.replaceChildren(row);
+    }
+
+    function showUsageFailure() {
+      for (const id of ["five_hours", "seven_days", "one_month"]) {
+        const card = document.querySelector(`#card-${id}`);
+        card.replaceChildren(node("div", "empty", "该账号用量读取失败"));
+      }
+      const row = node("tr");
+      const cell = node("td", "empty", "该账号请求记录读取失败");
+      cell.colSpan = 6;
+      row.append(cell);
+      elements.recordsBody.replaceChildren(row);
+    }
+
+    function selectAccount(accountId) {
+      if (state.loading || accountId === state.accountId) return;
+      state.accountId = accountId;
+      state.page = 0;
+      state.latest = null;
+      renderAccounts();
+      updateJsonLink();
+      clearUsageView();
+      load(false, 0);
+    }
+
+    function formatReset(window) {
+      const seconds = Math.max(0, Math.floor((new Date(window.resets_at).getTime() - Date.now()) / 1000));
+      const days = Math.floor(seconds / 86400);
+      const hours = Math.floor((seconds % 86400) / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      if (days) return `${days}天 ${hours}小时`;
+      if (hours) return `${hours}小时 ${minutes}分钟`;
+      return `${minutes}分钟`;
+    }
+
+    function renderQuota(id, label, data) {
+      const card = document.querySelector(`#card-${id}`) || document.querySelector(`#card_${id}`);
+      card.replaceChildren();
+      card.classList.toggle("limited", data.status === "rate-limited");
+
+      const head = node("div", "quota-head");
+      head.append(node("span", "quota-label", label), node("span", "quota-cap", `额度 $${data.quota_usd}`));
+      const value = node("div", "quota-value");
+      value.append(document.createTextNode(String(data.used_percent)), node("small", "", "% 已用"));
+      const meter = node("div", "meter");
+      const active = Math.ceil(data.used_percent / 5);
+      for (let index = 0; index < 20; index += 1) meter.append(node("span", index < active ? "on" : ""));
+      const meta = node("div", "quota-meta");
+      meta.append(
+        node("span", "", `剩余 ${data.remaining_percent}%`),
+        node("span", "", `约 ${formatReset(data)} 后重置`),
+        node("code", "", data.cycle),
+      );
+      card.append(head, value, meter, meta);
+    }
+
+    function tokenDetails(record, output = false) {
+      const details = node("details");
+      const total = output ? record.tokens.output : record.tokens.input_total;
+      details.append(node("summary", "", number.format(total)));
+      const breakdown = node("div", "breakdown mono");
+      const rows = output
+        ? [["输出", record.tokens.output], ["推理", record.tokens.reasoning]]
+        : [
+            ["原始输入", record.tokens.input],
+            ["缓存读取", record.tokens.cache_read],
+            ["缓存写入 5m", record.tokens.cache_write_5m],
+            ["缓存写入 1h", record.tokens.cache_write_1h],
+          ];
+      for (const [label, value] of rows) {
+        const row = node("div");
+        row.append(node("span", "", label), node("span", "", number.format(value)));
+        breakdown.append(row);
+      }
+      details.append(breakdown);
+      return details;
+    }
+
+    function renderRecords(history) {
+      elements.recordsBody.replaceChildren();
+      elements.pageLabel.textContent = `第 ${history.page + 1} 页`;
+      elements.previous.disabled = state.loading || !history.has_previous;
+      elements.next.disabled = state.loading || !history.has_next;
+
+      if (!history.records.length) {
+        const row = node("tr");
+        const cell = node("td", "empty", "本页没有请求记录。");
+        cell.colSpan = 6;
+        row.append(cell);
+        elements.recordsBody.append(row);
+        return;
+      }
+
+      for (const record of history.records) {
+        const row = node("tr");
+        row.append(node("td", "mono muted", dateTime.format(new Date(record.created_at))));
+
+        const modelCell = node("td");
+        modelCell.append(node("div", "model", record.model), node("span", "plan", record.plan));
+        row.append(modelCell);
+
+        const inputCell = node("td");
+        inputCell.append(tokenDetails(record));
+        row.append(inputCell);
+
+        const outputCell = node("td");
+        outputCell.append(tokenDetails(record, true));
+        row.append(outputCell);
+
+        row.append(node("td", "mono", `$${record.cost.usd}`));
+        const session = record.session_id ? record.session_id.slice(-8) : "-";
+        row.append(node("td", "mono muted", session));
+        elements.recordsBody.append(row);
+      }
+    }
+
+    function render(data) {
+      state.latest = data;
+      state.accountId = data.account.id;
+      const account = state.accounts.find((item) => item.id === data.account.id);
+      if (account && data.account.email) account.email = data.account.email;
+      renderAccounts();
+      updateJsonLink();
+      renderQuota("five_hours", "5 小时", data.summary.five_hours);
+      renderQuota("seven_days", "7 天 / 每周", data.summary.seven_days);
+      renderQuota("one_month", "1 个月", data.summary.one_month);
+      renderRecords(data.request_history);
+      elements.statusDot.classList.add("live");
+      elements.statusText.textContent = `更新于 ${dateTime.format(new Date(data.generated_at))} · 摘要缓存 ${data.cache.summary_hit ? "命中" : "刷新"} · 记录缓存 ${data.cache.records_hit ? "命中" : "刷新"}`;
+      elements.workspace.textContent = data.workspace_id;
+      const regions = data.summary.provider_regions.join(" / ");
+      elements.subscriptionMeta.textContent = `${regions} · 超限后余额${data.summary.use_balance_after_limit ? "已启用" : "未启用"}`;
+    }
+
+    async function load(force = false, targetPage = state.page) {
+      if (state.loading || !state.accountId) return;
+      state.loading = true;
+      renderAccounts();
+      elements.error.classList.add("hidden");
+      elements.refresh.disabled = true;
+      elements.previous.disabled = true;
+      elements.next.disabled = true;
+      elements.statusText.textContent = force ? "正在强制刷新官网数据…" : "正在读取用量…";
+      try {
+        const query = new URLSearchParams({
+          account: state.accountId,
+          page: String(targetPage),
+          refresh: String(force),
+        });
+        const response = await fetch(`/api/v1/usage?${query}`, { cache: "no-store" });
+        const body = await response.json();
+        if (isPanelAuthFailure(response, body)) {
+          state.authRequired = true;
+          lockDashboard("面板会话已失效，请重新输入 Key。", "");
+          return;
+        }
+        if (!response.ok) throw new Error(`${body.error?.message || "查询失败"} ${body.error?.hint || ""}`.trim());
+        state.page = targetPage;
+        render(body);
+      } catch (error) {
+        elements.statusDot.classList.remove("live");
+        elements.statusText.textContent = "查询失败";
+        showUsageFailure();
+        elements.error.textContent = error instanceof Error ? error.message : String(error);
+        elements.error.classList.remove("hidden");
+      } finally {
+        state.loading = false;
+        renderAccounts();
+        elements.refresh.disabled = false;
+        if (state.latest) {
+          elements.previous.disabled = !state.latest.request_history.has_previous;
+          elements.next.disabled = !state.latest.request_history.has_next;
+        }
+      }
+    }
+
+    async function initialize() {
+      try {
+        state.accounts = [];
+        state.accountId = null;
+        state.page = 0;
+        state.latest = null;
+        const response = await fetch("/api/v1/accounts", { cache: "no-store" });
+        const body = await response.json();
+        if (isPanelAuthFailure(response, body)) {
+          state.authRequired = true;
+          lockDashboard("面板会话已失效，请重新输入 Key。", "");
+          return;
+        }
+        if (!response.ok) throw new Error(body.error?.message || "读取账号失败");
+        state.accounts = body.accounts;
+        state.accountId = body.default_account_id;
+        renderAccounts();
+        updateJsonLink();
+        clearUsageView();
+        await load(false, 0);
+      } catch (error) {
+        elements.statusText.textContent = "账号配置读取失败";
+        elements.error.textContent = error instanceof Error ? error.message : String(error);
+        elements.error.classList.remove("hidden");
+      }
+    }
+
+    elements.refresh.addEventListener("click", () => load(true));
+    elements.authForm.addEventListener("submit", submitPanelKey);
+    elements.logout.addEventListener("click", logoutPanel);
+    elements.previous.addEventListener("click", () => {
+      if (state.page === 0) return;
+      load(false, state.page - 1);
+    });
+    elements.next.addEventListener("click", () => {
+      load(false, state.page + 1);
+    });
+
+    setInterval(() => {
+      if (!state.latest) return;
+      renderQuota("five_hours", "5 小时", state.latest.summary.five_hours);
+      renderQuota("seven_days", "7 天 / 每周", state.latest.summary.seven_days);
+      renderQuota("one_month", "1 个月", state.latest.summary.one_month);
+    }, 30_000);
+    setInterval(() => load(false), 60_000);
+    checkPanelAuth();
+  </script>
+</body>
+</html>

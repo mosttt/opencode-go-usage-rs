@@ -1,0 +1,33 @@
+[Unit]
+Description=OpenCode Go usage dashboard
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=opencode-go
+Group=opencode-go
+WorkingDirectory=/etc/opencode-go-usage
+ExecStart=/usr/local/bin/opencode-go-usage
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

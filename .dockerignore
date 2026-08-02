@@ -1,0 +1,7 @@
+.git
+.github
+.playwright-mcp
+target
+config.json
+*.log
+Dockerfile.*

@@ -1,0 +1,26 @@
+[package]
+name = "opencode-go-usage"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+description = "A self-hosted Salvo dashboard for OpenCode Go usage and request history"
+license = "MIT"
+
+[dependencies]
+anyhow = "1.0.100"
+chrono = { version = "0.4.45", features = ["serde"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["http2", "json", "rustls"] }
+salvo = { version = "0.95.1", default-features = false, features = ["affix-state", "cookie", "http1", "server", "server-handle"] }
+scraper = "0.27.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sha2 = "0.10.9"
+thiserror = "2.0.19"
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

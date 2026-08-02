@@ -1,0 +1,23 @@
+{
+  "server": {
+    "panel_key": "",
+    "bind": "127.0.0.1:8787",
+    "cache_ttl_seconds": 30,
+    "request_timeout_seconds": 15,
+    "base_url": "https://opencode.ai"
+  },
+  "accounts": [
+    {
+      "id": "personal",
+      "name": "个人账号",
+      "cookie": "auth=replace-personal-cookie",
+      "workspace_id": "/workspace/wrk_replace_personal/go"
+    },
+    {
+      "id": "work",
+      "name": "工作账号",
+      "cookie": "replace-work-auth-cookie-value",
+      "workspace_id": "https://opencode.ai/workspace/wrk_replace_work/go"
+    }
+  ]
+}

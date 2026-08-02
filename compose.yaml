@@ -1,0 +1,22 @@
+name: opencode-go-usage
+
+services:
+  dashboard:
+    build:
+      context: .
+    image: opencode-go-usage:local
+    restart: unless-stopped
+    init: true
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    ports:
+      - "127.0.0.1:${PANEL_PORT:-8787}:8787"
+    volumes:
+      - ./config.json:/app/config.json:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 10s

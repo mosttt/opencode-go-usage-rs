@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  quality:
+    name: Rust quality gates
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.94.0
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo test --all-targets --locked
+      - run: cargo clippy --all-targets --all-features --locked -- -D warnings
+      - run: cargo doc --locked --no-deps --document-private-items
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  binary:
+    name: Linux x86_64 binary
+    needs: quality
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.94.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: Package binary
+        run: |
+          package=opencode-go-usage-linux-x86_64
+          mkdir -p "dist/$package/docs" "dist/$package/deploy"
+          install -m 755 target/release/opencode-go-usage "dist/$package/opencode-go-usage"
+          cp config.example.json README.md LICENSE "dist/$package/"
+          cp docs/deployment.md "dist/$package/docs/"
+          cp deploy/opencode-go-usage.service "dist/$package/deploy/"
+          tar -C dist -czf "dist/$package.tar.gz" "$package"
+          rm -rf "dist/$package"
+          cd dist
+          sha256sum "$package.tar.gz" > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opencode-go-usage-linux-x86_64
+          path: dist/
+          if-no-files-found: error
+
+  docker:
+    name: Docker image
+    needs: quality
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: opencode-go-usage:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
