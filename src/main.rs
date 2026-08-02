@@ -22,10 +22,7 @@ async fn main() -> Result<()> {
     let config = Config::from_path("config.json")?;
     let bind_addr = config.bind_addr;
     let auth_required = config.panel_key.is_some();
-    let weak_panel_key = config
-        .panel_key
-        .as_ref()
-        .is_some_and(|key| key.len() < 16);
+    let weak_panel_key = config.panel_key.as_ref().is_some_and(|key| key.len() < 16);
     let panel_key = config.panel_key;
     let account_count = config.accounts.len();
     let accounts = AccountRegistry::new(config.accounts)?;

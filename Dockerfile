@@ -13,8 +13,8 @@ FROM debian:bookworm-slim AS runtime
 RUN apt-get update && \
     apt-get install --yes --no-install-recommends ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
-    groupadd --system --gid 10001 opencode && \
-    useradd --system --uid 10001 --gid opencode --home-dir /nonexistent --shell /usr/sbin/nologin opencode
+    groupadd --gid 10001 opencode && \
+    useradd --uid 10001 --gid opencode --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin opencode
 
 COPY --from=builder /out/opencode-go-usage /usr/local/bin/opencode-go-usage
 

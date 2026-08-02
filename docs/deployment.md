@@ -40,7 +40,7 @@ cargo build --release --locked
 target/release/opencode-go-usage
 ```
 
-GitHub Actions 的 `CI` 工作流也会生成 `opencode-go-usage-linux-x86_64` 构建产物及 SHA-256 校验文件。
+GitHub Actions 的 `CI` 工作流也会生成 `opencode-go-usage-linux-x86_64` 构建产物及 SHA-256 校验文件。该产物面向 glibc Linux x86_64；其他平台建议在目标机源码构建或使用 Docker 多架构镜像。
 
 ### systemd 安装
 
