@@ -251,7 +251,7 @@
       background: var(--paper-raised);
       box-shadow: var(--shadow);
     }
-    table { width: 100%; min-width: 990px; border-collapse: collapse; }
+    table { width: 100%; min-width: 1100px; border-collapse: collapse; }
     th {
       padding: 13px 14px;
       border-bottom: 1px solid var(--line-strong);
@@ -409,6 +409,7 @@
             <tr>
               <th>时间</th>
               <th>模型</th>
+              <th>Provider</th>
               <th>输入 Token</th>
               <th>输出 Token</th>
               <th>费用</th>
@@ -416,7 +417,7 @@
             </tr>
           </thead>
           <tbody id="records-body">
-            <tr><td colspan="6" class="empty">正在读取官网记录…</td></tr>
+            <tr><td colspan="7" class="empty">正在读取官网记录…</td></tr>
           </tbody>
         </table>
       </div>
@@ -604,7 +605,7 @@
       }
       const row = node("tr");
       const cell = node("td", "empty", "正在读取该账号请求记录…");
-      cell.colSpan = 6;
+      cell.colSpan = 7;
       row.append(cell);
       elements.recordsBody.replaceChildren(row);
     }
@@ -616,7 +617,7 @@
       }
       const row = node("tr");
       const cell = node("td", "empty", "该账号请求记录读取失败");
-      cell.colSpan = 6;
+      cell.colSpan = 7;
       row.append(cell);
       elements.recordsBody.replaceChildren(row);
     }
@@ -694,7 +695,7 @@
       if (!history.records.length) {
         const row = node("tr");
         const cell = node("td", "empty", "本页没有请求记录。");
-        cell.colSpan = 6;
+        cell.colSpan = 7;
         row.append(cell);
         elements.recordsBody.append(row);
         return;
@@ -707,6 +708,8 @@
         const modelCell = node("td");
         modelCell.append(node("div", "model", record.model), node("span", "plan", record.plan));
         row.append(modelCell);
+
+        row.append(node("td", "mono muted", record.provider || "-"));
 
         const inputCell = node("td");
         inputCell.append(tokenDetails(record));
