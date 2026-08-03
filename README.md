@@ -49,7 +49,7 @@
 
 ## 环境要求
 
-- Rust 1.94 或更高版本
+- Rust 1.97 或更高版本
 - 有效的 OpenCode 登录态
 - 已加入目标工作区并可在官网打开 Go 和 Usage 页面
 - Docker 部署时需要 Docker Engine 及 Compose v2
@@ -359,7 +359,7 @@ input_total = input + cache_read + cache_write_5m + cache_write_1h
 
 ## 开发检查
 
-`.github/workflows/ci.yml` 会在 push、pull request 和手工触发时执行 Rust 质量门禁、构建 Linux x86_64 二进制产物并验证 Docker 镜像构建。推送到 `main` 或 `v*.*.*` 标签时，`.github/workflows/publish-image.yml` 会将多架构镜像发布到 `ghcr.io/mosttt/opencode-go-usage-rs`。
+`.github/workflows/ci.yml` 会在 push、pull request 和手工触发时执行 Rust 质量门禁、构建 Linux x86_64、Linux ARM64、Windows x86_64 和 macOS ARM64 二进制产物并验证 Docker 镜像构建。推送到 `main` 或 `v*.*.*` 标签时，`.github/workflows/publish-image.yml` 会将多架构镜像发布到 `ghcr.io/mosttt/opencode-go-usage-rs`。
 
 ```bash
 cargo fmt --all -- --check

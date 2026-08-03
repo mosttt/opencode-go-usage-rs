@@ -2,7 +2,7 @@
 name = "opencode-go-usage"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.94"
+rust-version = "1.97"
 description = "A self-hosted Salvo dashboard for OpenCode Go usage and request history"
 license = "MIT"
 

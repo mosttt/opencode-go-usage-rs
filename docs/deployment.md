@@ -25,11 +25,11 @@
 
 ### 从源码构建
 
-项目要求 Rust 1.94 或更高版本：
+项目要求 Rust 1.97 或更高版本：
 
 ```bash
-rustup toolchain install 1.94.0
-rustup override set 1.94.0
+rustup toolchain install 1.97.1
+rustup override set 1.97.1
 cargo build --release --locked
 ```
 
@@ -39,7 +39,7 @@ cargo build --release --locked
 target/release/opencode-go-usage
 ```
 
-GitHub Actions 的 `CI` 工作流也会生成 `opencode-go-usage-linux-x86_64` 构建产物及 SHA-256 校验文件。该产物面向 glibc Linux x86_64；其他平台建议在目标机源码构建或使用 Docker 多架构镜像。
+GitHub Actions 的 `CI` 工作流也会生成 Linux x86_64、Linux ARM64、Windows x86_64 和 macOS ARM64 构建产物，每个产物都附带 SHA-256 校验文件。Linux 用户也可以直接使用 Docker 多架构镜像。
 
 ### systemd 安装
 
