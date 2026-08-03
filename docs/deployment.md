@@ -4,13 +4,17 @@
 
 ## 部署前检查
 
-1. 首次部署先复制示例配置，再按实际情况填写账号 Cookie 和服务设置：
+1. 首次部署先按运行方式复制示例配置，再填写账号 Cookie 和服务设置：
 
    ```bash
+   # 本机二进制、cargo run 或 systemd
+   cp config.local.example.json config.json
+
+   # Docker Compose
    cp config.example.json config.json
    ```
 
-   Windows PowerShell 使用 `Copy-Item config.example.json config.json`。服务固定读取进程工作目录中的 `config.json`，不会自动创建该文件；如果文件缺失，会报“无法读取配置文件 config.json（os error 2）”。
+   Windows PowerShell 使用 `Copy-Item config.local.example.json config.json`（本机）或 `Copy-Item config.example.json config.json`（Docker）。服务固定读取进程工作目录中的 `config.json`，不会自动创建该文件；如果文件缺失，会报“无法读取配置文件 config.json（os error 2）”。
 
 2. 公网部署必须设置非空 `server.panel_key`，推荐使用至少 32 位随机 Key：
 
@@ -46,7 +50,7 @@ cargo build --release --locked
 target/release/opencode-go-usage
 ```
 
-GitHub Actions 的 `CI` 工作流也会生成 Linux x86_64、Linux ARM64、Windows x86_64 和 macOS ARM64 构建产物，每个产物都附带 SHA-256 校验文件。Linux 用户也可以直接使用 Docker 多架构镜像。
+GitHub Actions 的 `CI` 工作流也会生成 Linux、Windows、macOS 各自的 x86_64 与 ARM64 构建产物，每个产物都附带 SHA-256 校验文件。两个 Linux 包静态链接 musl libc，不依赖目标机器的 glibc 版本；Linux 用户也可以直接使用 Docker 多架构镜像。
 
 ### systemd 安装
 
@@ -113,10 +117,20 @@ sudo systemctl restart opencode-go-usage
 ### Docker Compose
 
 ```bash
-docker compose pull
-LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)" docker compose up -d
+IMAGE_TAG=0.1.1 docker compose pull
+IMAGE_TAG=0.1.1 LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)" docker compose up -d
 docker compose logs -f dashboard
 ```
+
+Windows PowerShell：
+
+```powershell
+$env:IMAGE_TAG = "0.1.1"
+docker compose pull
+docker compose up -d
+```
+
+生产部署建议固定发布版本；未设置 `IMAGE_TAG` 时 Compose 使用会随 `main` 更新的 `latest`。
 
 `compose.yaml` 默认只向宿主机 `127.0.0.1:8787` 发布端口，并启用：
 
@@ -125,12 +139,14 @@ docker compose logs -f dashboard
 - 删除全部 Linux capabilities
 - `no-new-privileges`
 - 与配置文件所有者一致的 UID/GID
+- 缺少 `./config.json` 时直接失败，不自动创建同名目录
+- 应用收到 SIGTERM 后最多等待 10 秒完成现有请求，Compose 在 15 秒后才强制停止
 
 更新与停止：
 
 ```bash
-docker compose pull
-LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)" docker compose up -d
+IMAGE_TAG=0.1.1 docker compose pull
+IMAGE_TAG=0.1.1 LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)" docker compose up -d
 docker compose down
 ```
 
@@ -140,6 +156,8 @@ docker compose down
 LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)" \
   docker compose -f compose.yaml -f compose.local.yaml up -d --build
 ```
+
+`compose.local.yaml` 只覆盖镜像来源和构建方式，仍继承 `compose.yaml` 中的只读文件系统、端口、只读配置挂载和其他安全设置。
 
 若端口需要调整：
 
@@ -242,6 +260,8 @@ server {
 
 服务从当前工作目录读取 `config.json`。systemd 必须设置正确的 `WorkingDirectory`；Docker 必须挂载到 `/app/config.json`。
 
+Compose 的挂载已设置 `create_host_path: false`，因此宿主机缺少 `config.json` 时会立即报错。先执行 `cp config.example.json config.json`（PowerShell：`Copy-Item config.example.json config.json`），不要创建名为 `config.json` 的目录。
+
 ### Docker 提示 Permission denied
 
 确保 Compose 使用配置文件所有者的 UID/GID：
@@ -258,3 +278,7 @@ LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)" docker compose up -d
 
 - `panel_authentication_required`：面板未登录或 Key 错误。
 - `opencode_authentication_required`：某个 OpenCode 账号的登录 Cookie 已失效。
+
+### base_url 配置被拒绝
+
+公网或局域网上游必须使用 HTTPS。只有 `localhost`、`127.0.0.0/8` 和 `::1` 等回环地址可使用 HTTP；URL 不能包含用户名、密码、query 或 fragment。

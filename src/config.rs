@@ -1,6 +1,12 @@
 //! 单一 JSON 文件配置加载，并对 Cookie 等敏感值做显式保护。
 
-use std::{collections::HashSet, fs, net::SocketAddr, path::Path, time::Duration};
+use std::{
+    collections::HashSet,
+    fs,
+    net::{IpAddr, SocketAddr},
+    path::Path,
+    time::Duration,
+};
 
 use anyhow::{Context, Result, bail};
 use reqwest::{Url, header::HeaderValue};
@@ -248,6 +254,12 @@ fn normalize_base_url(value: &str) -> Result<Url> {
     if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
         bail!("必须是 http(s) URL");
     }
+    if !url.username().is_empty() || url.password().is_some() {
+        bail!("不能在 URL 中包含用户名或密码");
+    }
+    if url.scheme() == "http" && !is_loopback_url(&url) {
+        bail!("非回环地址必须使用 HTTPS；HTTP 仅用于 localhost 或回环 IP");
+    }
     if url.query().is_some() || url.fragment().is_some() {
         bail!("不能包含 query 或 fragment");
     }
@@ -256,6 +268,17 @@ fn normalize_base_url(value: &str) -> Result<Url> {
         url.set_path(&path);
     }
     Ok(url)
+}
+
+fn is_loopback_url(url: &Url) -> bool {
+    url.host_str().is_some_and(|host| {
+        host.eq_ignore_ascii_case("localhost")
+            || host
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .parse::<IpAddr>()
+                .is_ok_and(|address| address.is_loopback())
+    })
 }
 
 fn bounded_u64(name: &str, value: Option<u64>, default: u64, min: u64, max: u64) -> Result<u64> {
@@ -322,5 +345,80 @@ mod tests {
         let too_long = "x".repeat(257);
         assert!(normalize_panel_key(Some(&too_long)).is_err());
         assert!(normalize_panel_key(Some("0123456789abcdef")).is_ok());
+    }
+
+    #[test]
+    fn requires_https_except_for_loopback_upstreams() {
+        assert!(normalize_base_url("https://opencode.ai").is_ok());
+        assert!(normalize_base_url("http://localhost:8787").is_ok());
+        assert!(normalize_base_url("http://127.0.0.1:8787").is_ok());
+        assert!(normalize_base_url("http://[::1]:8787").is_ok());
+        assert!(normalize_base_url("http://opencode.ai").is_err());
+    }
+
+    #[test]
+    fn rejects_credentials_query_and_fragment_in_base_url() {
+        assert!(normalize_base_url("https://user:pass@opencode.ai").is_err());
+        assert!(normalize_base_url("https://opencode.ai?x=1").is_err());
+        assert!(normalize_base_url("https://opencode.ai/#fragment").is_err());
+    }
+
+    #[test]
+    fn rejects_duplicate_ids_unknown_fields_and_excess_accounts() {
+        let duplicate: RawConfig = serde_json::from_str(
+            r#"{"accounts":[
+                {"id":"same","name":"A","cookie":"x","workspace_id":"wrk_A"},
+                {"id":"same","name":"B","cookie":"y","workspace_id":"wrk_B"}
+            ]}"#,
+        )
+        .unwrap();
+        assert!(Config::from_raw(duplicate).is_err());
+
+        assert!(
+            serde_json::from_str::<RawConfig>(r#"{"accounts":[],"unexpected":"value"}"#).is_err()
+        );
+
+        let accounts = (0..=MAX_ACCOUNTS)
+            .map(|index| {
+                serde_json::json!({
+                    "id": format!("account-{index}"),
+                    "name": format!("Account {index}"),
+                    "cookie": "x",
+                    "workspace_id": format!("wrk_{index}")
+                })
+            })
+            .collect::<Vec<_>>();
+        let raw: RawConfig =
+            serde_json::from_value(serde_json::json!({"accounts": accounts})).unwrap();
+        assert!(Config::from_raw(raw).is_err());
+    }
+
+    #[test]
+    fn reports_missing_and_oversized_config_files() {
+        let path = std::env::temp_dir().join(format!(
+            "opencode-go-usage-config-test-{}.json",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&path);
+        let missing = Config::from_path(&path).err().unwrap();
+        assert!(format!("{missing:#}").contains("无法读取配置文件"));
+
+        fs::write(&path, vec![b' '; MAX_CONFIG_BYTES + 1]).unwrap();
+        let oversized = Config::from_path(&path).err().unwrap();
+        assert!(format!("{oversized:#}").contains("配置文件不能超过"));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn repository_example_configs_remain_valid() {
+        let container: RawConfig =
+            serde_json::from_str(include_str!("../config.example.json")).unwrap();
+        let container = Config::from_raw(container).unwrap();
+        assert_eq!(container.bind_addr.to_string(), "0.0.0.0:8787");
+
+        let local: RawConfig =
+            serde_json::from_str(include_str!("../config.local.example.json")).unwrap();
+        let local = Config::from_raw(local).unwrap();
+        assert_eq!(local.bind_addr.to_string(), "127.0.0.1:8787");
     }
 }

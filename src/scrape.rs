@@ -148,7 +148,7 @@ pub fn parse_usage_page(
 ) -> Result<ParsedUsagePage, ServiceError> {
     let records: Vec<RawUsageRecord> = parse_hydration_query(html, USAGE_QUERY)?;
     Ok(ParsedUsagePage {
-        page: records_page(0, records, fetched_at),
+        page: records_page(0, records, fetched_at)?,
         module_assets: module_asset_paths(html),
     })
 }
@@ -160,7 +160,7 @@ pub fn parse_usage_rpc_page(
     fetched_at: DateTime<Utc>,
 ) -> Result<RecordsPage, ServiceError> {
     if let Ok(records) = serde_json::from_slice::<Vec<RawUsageRecord>>(body) {
-        return Ok(records_page(page, records, fetched_at));
+        return records_page(page, records, fetched_at);
     }
 
     let payload = first_seroval_frame(body)?;
@@ -172,7 +172,7 @@ pub fn parse_usage_rpc_page(
     let expression_start = marker_position + marker.len();
     let expression = extract_expression(payload, expression_start, "records rpc")?;
     let records: Vec<RawUsageRecord> = parse_js_value(expression, "records rpc")?;
-    Ok(records_page(page, records, fetched_at))
+    records_page(page, records, fetched_at)
 }
 
 /// 查找距离 `usage.list` 查询定义最近的 server-function 哈希。
@@ -207,16 +207,25 @@ fn records_page(
     page: u32,
     raw_records: Vec<RawUsageRecord>,
     fetched_at: DateTime<Utc>,
-) -> RecordsPage {
+) -> Result<RecordsPage, ServiceError> {
+    if raw_records.len() > OFFICIAL_PAGE_SIZE {
+        return Err(ServiceError::UpstreamFormatChanged {
+            area: USAGE_QUERY,
+            detail: format!(
+                "upstream returned {} records, exceeding the official page size {OFFICIAL_PAGE_SIZE}",
+                raw_records.len()
+            ),
+        });
+    }
     let has_next = raw_records.len() == OFFICIAL_PAGE_SIZE;
-    RecordsPage {
+    Ok(RecordsPage {
         page,
         page_size: OFFICIAL_PAGE_SIZE,
         has_previous: page > 0,
         has_next,
         records: raw_records.into_iter().map(normalize_record).collect(),
         fetched_at,
-    }
+    })
 }
 
 fn normalize_record(raw: RawUsageRecord) -> UsageRecord {
@@ -759,6 +768,22 @@ mod tests {
         let page = parse_usage_rpc_page(body.as_bytes(), 1, Utc::now()).unwrap();
         assert_eq!(page.page, 1);
         assert_eq!(page.records[0].tokens.cache_read, 3);
+    }
+
+    #[test]
+    fn rejects_truncated_frames_and_oversized_record_pages() {
+        assert!(parse_usage_rpc_page(b";0x00000010;short", 1, Utc::now()).is_err());
+
+        let record = r#"{"id":"usg_1","workspaceID":"wrk_test","timeCreated":"2026-08-02T06:00:00Z","model":"m","provider":"p","inputTokens":1,"outputTokens":2,"reasoningTokens":0,"cacheReadTokens":0,"cacheWrite5mTokens":null,"cacheWrite1hTokens":null,"cost":4,"keyID":null,"sessionID":null,"enrichment":{"plan":"lite"}}"#;
+        let body = format!("[{}]", vec![record; OFFICIAL_PAGE_SIZE + 1].join(","));
+        let error = parse_usage_rpc_page(body.as_bytes(), 1, Utc::now()).unwrap_err();
+        assert!(matches!(
+            error,
+            ServiceError::UpstreamFormatChanged {
+                area: USAGE_QUERY,
+                ..
+            }
+        ));
     }
 
     #[test]

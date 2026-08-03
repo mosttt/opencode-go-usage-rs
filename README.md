@@ -22,7 +22,7 @@
 | 低心智负担 | 页码、每页数量、Token 合计方式均跟随官网，不另造统计口径 |
 | 高维护性 | 不使用无头浏览器；动态发现当前官网 server-function 哈希；解析失败即显式报错 |
 | 高性能 | 每账号复用 reqwest 连接池；摘要和各记录页独立缓存；相同时间的刷新合并为一次上游抓取 |
-| 安全性 | Cookie 只存在于服务端；可选面板 Key；禁止缓存响应；默认仅监听 `127.0.0.1`；不执行官网 JavaScript |
+| 安全性 | Cookie 只存在于服务端；可选面板 Key；禁止缓存响应；本机示例仅监听 `127.0.0.1`；不执行官网 JavaScript |
 
 详细原理见 [`docs/architecture.md`](docs/architecture.md)，生产部署见 [`docs/deployment.md`](docs/deployment.md)。
 
@@ -56,11 +56,17 @@
 
 ## 配置
 
-服务只读取进程当前工作目录中的 `config.json`，不读取 `.env` 或账号环境变量。使用 `cargo run` 时工作目录通常就是项目根目录：
+服务只读取进程当前工作目录中的 `config.json`，不读取 `.env` 或账号环境变量，也不会自动生成含凭据的配置。请按运行方式选择示例：
 
 ```bash
+# 本机二进制或 cargo run：默认只监听本机
+cp config.local.example.json config.json
+
+# Docker Compose：容器内监听 0.0.0.0，宿主机仍只发布到 127.0.0.1
 cp config.example.json config.json
 ```
+
+Windows PowerShell 分别使用 `Copy-Item config.local.example.json config.json` 或 `Copy-Item config.example.json config.json`。未创建该文件就启动会明确报错 `无法读取配置文件 config.json`（Windows 常见后续原因为 `os error 2`）。
 
 `config.json` 同时保存服务设置、面板鉴权和全部账号：
 
@@ -90,7 +96,7 @@ cp config.example.json config.json
 }
 ```
 
-示例配置默认监听 `0.0.0.0:8787`，复制后可直接用于 Docker Compose。直接在宿主机运行二进制且不需要局域网访问时，建议改为 `127.0.0.1:8787`。
+`config.example.json` 默认监听 `0.0.0.0:8787`，复制后可直接用于 Docker Compose；`config.local.example.json` 默认监听 `127.0.0.1:8787`，用于本机二进制或 `cargo run`。Compose 只把端口发布到宿主机 `127.0.0.1`，因此容器内监听全部接口不等于直接暴露公网。
 
 `id` 可省略，服务会生成 `account-1`、`account-2`。账号 ID 仅支持 ASCII 字母、数字、下划线和连字符，且必须唯一。账号数量上限为 32。
 
@@ -132,8 +138,8 @@ openssl rand -hex 32
 | `server.panel_key` | 空 | 面板 Key；为空不鉴权，公网推荐至少 32 位随机值 |
 | `server.cache_ttl_seconds` | `30` | 内存缓存秒数，范围 1 到 300 |
 | `server.request_timeout_seconds` | `15` | 官网请求超时，范围 3 到 60 秒 |
-| `server.base_url` | `https://opencode.ai` | 所有账号默认官网地址 |
-| `accounts[].base_url` | 继承 `server.base_url` | 单个账号覆盖官网地址 |
+| `server.base_url` | `https://opencode.ai` | 所有账号默认官网地址；非回环地址必须使用 HTTPS |
+| `accounts[].base_url` | 继承 `server.base_url` | 单个账号覆盖官网地址；HTTP 仅允许 `localhost` 或回环 IP |
 
 ## 运行
 
@@ -150,6 +156,25 @@ http://127.0.0.1:8787
 服务启动时会校验配置格式，但不会把 Cookie 或面板 Key 打印到日志中。
 
 二进制、systemd、Docker Compose、Caddy 和 Nginx 的完整步骤见 [`docs/deployment.md`](docs/deployment.md)。
+
+### Docker Compose
+
+编辑好容器版 `config.json` 后可直接使用 GHCR 多架构镜像：
+
+```bash
+IMAGE_TAG=0.1.1 docker compose pull
+IMAGE_TAG=0.1.1 LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)" docker compose up -d
+```
+
+PowerShell：
+
+```powershell
+$env:IMAGE_TAG = "0.1.1"
+docker compose pull
+docker compose up -d
+```
+
+生产环境建议固定明确版本（例如 `0.1.1`）；未设置 `IMAGE_TAG` 时使用会随 `main` 更新的 `latest`。镜像地址为 `ghcr.io/mosttt/opencode-go-usage-rs`，支持 `linux/amd64` 和 `linux/arm64`。
 
 ## JSON API
 
@@ -349,7 +374,9 @@ input_total = input + cache_read + cache_write_5m + cache_write_1h
 ## 安全说明
 
 - 默认只监听本机地址。公网部署应通过 HTTPS 反向代理，并设置非空的高强度 `server.panel_key`。
+- `config.example.json` 是容器示例，容器内监听 `0.0.0.0`；本机运行应使用 `config.local.example.json`。
 - 反向代理应覆盖而不是透传客户端提供的 `X-Forwarded-Proto`，HTTPS 请求设置为 `https`，以便会话 Cookie 带 `Secure`。
+- 官网基础地址若不是回环地址，配置加载时强制要求 HTTPS；URL 中禁止嵌入用户名、密码、查询参数或片段。
 - Cookie 通过 reqwest 敏感 HeaderValue 保存，配置类型不实现 `Debug`。
 - 不同账号使用不同 reqwest 客户端和缓存，不共享 Cookie HeaderValue。
 - `.gitignore` 默认排除包含凭据的 `config.json`。
@@ -358,15 +385,17 @@ input_total = input + cache_read + cache_write_5m + cache_write_1h
 - 账号邮箱会显示在仪表盘并由 JSON API 返回；只有 `server.panel_key` 非空时这些接口才受面板鉴权保护。
 - 仪表盘设置 CSP、`frame-ancestors 'none'` 和 `Referrer-Policy: no-referrer`。
 - 解析器只把受支持的 Seroval 纯数据子集转换为 JSON，不使用 JavaScript 引擎，不执行官网代码。
+- 服务最多同时处理 256 个客户端连接，并将全部账号合计的官网并发请求限制为 8 个；SIGTERM 和 Ctrl-C 会等待现有请求最多 10 秒后退出。
 
 ## 开发检查
 
-`.github/workflows/ci.yml` 会在 push、pull request 和手工触发时执行 Rust 质量门禁、构建 Linux x86_64、Linux ARM64、Windows x86_64 和 macOS ARM64 二进制产物并验证 Docker 镜像构建。推送 `v*.*.*` 标签时，它还会创建 GitHub Release 并附加各平台压缩包及 SHA-256 校验文件。推送到 `main` 或 `v*.*.*` 标签时，`.github/workflows/publish-image.yml` 会将多架构镜像发布到 `ghcr.io/mosttt/opencode-go-usage-rs`。
+`.github/workflows/ci.yml` 会在 push、pull request 和手工触发时执行 Rust 质量门禁与依赖漏洞审计，构建 Linux、Windows、macOS 各自的 x86_64 与 ARM64 二进制产物（Linux 为 MUSL），并验证 Docker 镜像构建。推送严格的 `v*.*.*` 标签时，流水线会先发布对应 GHCR 多架构镜像，再创建 GitHub Release 并附加各平台压缩包及 SHA-256 校验文件。`main` 更新也会发布 `latest` 镜像。
 
 ```bash
 cargo fmt --all -- --check
-cargo test --all-targets
-cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --locked
+cargo clippy --all-targets --all-features --locked -- -D warnings
+cargo audit
 ```
 
 项目在 crate 根启用了：

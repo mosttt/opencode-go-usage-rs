@@ -9,7 +9,12 @@ services:
     ports:
       - "127.0.0.1:${PANEL_PORT:-8787}:8787"
     volumes:
-      - ./config.json:/app/config.json:ro
+      - type: bind
+        source: ./config.json
+        target: /app/config.json
+        read_only: true
+        bind:
+          create_host_path: false
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m
@@ -17,4 +22,4 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    stop_grace_period: 10s
+    stop_grace_period: 15s

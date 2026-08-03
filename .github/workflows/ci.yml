@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    branches: ["**"]
+    tags: ["v*.*.*"]
   pull_request:
   workflow_dispatch:
 
@@ -9,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -21,11 +23,11 @@ jobs:
     name: Rust quality gates
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@46511b1c83438f0dd37c02d843619ece5a4abb5b # 1.97.1
         with:
           components: clippy,rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo fmt --all -- --check
       - run: cargo test --all-targets --locked
       - run: cargo clippy --all-targets --all-features --locked -- -D warnings
@@ -33,45 +35,98 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  audit:
+    name: Dependency vulnerability audit
+    runs-on: ubuntu-24.04
+    permissions:
+      checks: write
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  validate_release_tag:
+    name: Validate release tag
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require vMAJOR.MINOR.PATCH
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+
   binary:
     name: ${{ matrix.name }} binary
-    needs: quality
+    needs: [quality, audit]
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: Linux x86_64
+          - name: Linux x86_64 MUSL
             runner: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
+            target: x86_64-unknown-linux-musl
             family: linux
             archive: tar.gz
-            artifact: opencode-go-usage-linux-x86_64
-          - name: Linux ARM64
+            artifact: opencode-go-usage-linux-x86_64-musl
+          - name: Linux ARM64 MUSL
             runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
+            target: aarch64-unknown-linux-musl
             family: linux
             archive: tar.gz
-            artifact: opencode-go-usage-linux-aarch64
+            artifact: opencode-go-usage-linux-aarch64-musl
           - name: Windows x86_64
             runner: windows-2025
             target: x86_64-pc-windows-msvc
             family: windows
             archive: zip
             artifact: opencode-go-usage-windows-x86_64
+          - name: Windows ARM64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            family: windows
+            archive: zip
+            artifact: opencode-go-usage-windows-aarch64
+          - name: macOS x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            family: macos
+            archive: tar.gz
+            artifact: opencode-go-usage-macos-x86_64
           - name: macOS ARM64
-            runner: macos-14
+            runner: macos-15
             target: aarch64-apple-darwin
             family: macos
             archive: tar.gz
             artifact: opencode-go-usage-macos-aarch64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@46511b1c83438f0dd37c02d843619ece5a4abb5b # 1.97.1
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-      - name: Build binary
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: ${{ matrix.target }}
+      - name: Install musl toolchain
+        if: matrix.family == 'linux'
+        run: sudo apt-get update && sudo apt-get install --yes musl-tools
+      - name: Build Linux binary
+        if: matrix.family == 'linux'
+        shell: bash
+        run: |
+          compiler_variable="CC_${{ matrix.target }}"
+          compiler_variable="${compiler_variable//-/_}"
+          export "$compiler_variable=musl-gcc"
+          cargo build --release --locked --target "${{ matrix.target }}"
+      - name: Build non-Linux binary
+        if: matrix.family != 'linux'
         run: cargo build --release --locked --target ${{ matrix.target }}
       - name: Package Unix binary
         if: matrix.archive == 'tar.gz'
@@ -80,7 +135,7 @@ jobs:
           package="${{ matrix.artifact }}"
           mkdir -p "dist/$package/docs"
           install -m 755 "target/${{ matrix.target }}/release/opencode-go-usage" "dist/$package/opencode-go-usage"
-          cp config.example.json README.md LICENSE "dist/$package/"
+          cp config.example.json config.local.example.json README.md LICENSE "dist/$package/"
           cp docs/deployment.md "dist/$package/docs/"
           if [[ "${{ matrix.family }}" == "linux" ]]; then
             mkdir -p "dist/$package/deploy"
@@ -101,55 +156,78 @@ jobs:
           $root = Join-Path "dist" $package
           New-Item -ItemType Directory -Force -Path (Join-Path $root "docs") | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/opencode-go-usage.exe" (Join-Path $root "opencode-go-usage.exe")
-          Copy-Item config.example.json,README.md,LICENSE $root
+          Copy-Item config.example.json,config.local.example.json,README.md,LICENSE $root
           Copy-Item docs/deployment.md (Join-Path $root "docs")
           Compress-Archive -Path $root -DestinationPath "dist/$package.zip"
           Remove-Item $root -Recurse -Force
           $hash = (Get-FileHash "dist/$package.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $package.zip" | Set-Content "dist/$package.zip.sha256"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.artifact }}
           path: dist/
           if-no-files-found: error
 
+  docker:
+    name: Docker image build
+    if: github.ref_type != 'tag' && (github.event_name != 'push' || github.ref != 'refs/heads/main')
+    needs: [quality, audit]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          push: false
+          tags: opencode-go-usage:ci
+          cache-from: type=gha,scope=docker-ci
+          cache-to: type=gha,mode=max,scope=docker-ci
+
+  docker_main:
+    name: Publish main Docker image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [quality, audit]
+    uses: ./.github/workflows/publish-image.yml
+    permissions:
+      contents: read
+      packages: write
+
+  docker_release:
+    name: Publish tagged Docker image
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [quality, audit, validate_release_tag]
+    uses: ./.github/workflows/publish-image.yml
+    permissions:
+      contents: read
+      packages: write
+
   release:
     name: GitHub Release
-    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
-    needs: binary
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [binary, docker_release]
     runs-on: ubuntu-24.04
     permissions:
       actions: read
       contents: write
     steps:
       - name: Download binary artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: opencode-go-usage-*
           path: dist
           merge-multiple: true
-      - name: Create GitHub Release
+      - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh release create "${GITHUB_REF_NAME}"
-          dist/*
-          --repo "${GITHUB_REPOSITORY}"
-          --title "${GITHUB_REF_NAME}"
-          --generate-notes
-          --verify-tag
-
-  docker:
-    name: Docker image
-    needs: quality
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          tags: opencode-go-usage:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        shell: bash
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              --verify-tag
+          fi

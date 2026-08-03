@@ -19,7 +19,7 @@ use reqwest::{
 };
 use serde::Serialize;
 use serde_json::json;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, Semaphore};
 
 use crate::{
     config::AccountConfig,
@@ -35,6 +35,7 @@ const MAX_HTML_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ASSET_BYTES: usize = 8 * 1024 * 1024;
 const MAX_RPC_BYTES: usize = 4 * 1024 * 1024;
 const MAX_CACHED_RECORD_PAGES: usize = 64;
+const MAX_CONCURRENT_UPSTREAM_REQUESTS: usize = 8;
 
 /// 多账号注册表，负责按账号 ID 选择完全隔离的用量服务。
 #[derive(Clone)]
@@ -77,7 +78,9 @@ struct Inner {
     origin: String,
     cache: RwLock<CacheState>,
     refresh_lock: Mutex<()>,
+    refresh_generation: AtomicU64,
     server_instance: AtomicU64,
+    upstream_limiter: Arc<Semaphore>,
 }
 
 #[derive(Default)]
@@ -142,11 +145,12 @@ impl AccountRegistry {
             bail!("账号注册表至少需要一个账号");
         }
         let mut accounts = Vec::with_capacity(configs.len());
+        let upstream_limiter = Arc::new(Semaphore::new(MAX_CONCURRENT_UPSTREAM_REQUESTS));
         for config in configs {
             let id = config.id.clone();
             let name = config.name.clone();
-            let service =
-                UsageService::new(config).with_context(|| format!("无法初始化账号 {name}"))?;
+            let service = UsageService::new_with_limiter(config, Arc::clone(&upstream_limiter))
+                .with_context(|| format!("无法初始化账号 {name}"))?;
             accounts.push(Account { id, name, service });
         }
         Ok(Self {
@@ -249,8 +253,15 @@ impl Account {
 }
 
 impl UsageService {
-    /// 根据运行配置创建共享 HTTP 客户端和内存缓存。
-    pub fn new(config: AccountConfig) -> Result<Self> {
+    #[cfg(test)]
+    fn new(config: AccountConfig) -> Result<Self> {
+        Self::new_with_limiter(
+            config,
+            Arc::new(Semaphore::new(MAX_CONCURRENT_UPSTREAM_REQUESTS)),
+        )
+    }
+
+    fn new_with_limiter(config: AccountConfig, upstream_limiter: Arc<Semaphore>) -> Result<Self> {
         let mut default_headers = HeaderMap::new();
         default_headers.insert(reqwest::header::COOKIE, config.cookie);
         default_headers.insert(
@@ -302,7 +313,9 @@ impl UsageService {
                 origin,
                 cache: RwLock::new(CacheState::default()),
                 refresh_lock: Mutex::new(()),
+                refresh_generation: AtomicU64::new(0),
                 server_instance: AtomicU64::new(0),
+                upstream_limiter,
             }),
         })
     }
@@ -346,6 +359,7 @@ impl UsageService {
     /// 返回摘要和指定官网页。相同页在 TTL 内直接复用，且并发刷新由一个
     /// single-flight 锁合并，避免浏览器自动刷新造成上游请求突发。
     pub async fn report(&self, page: u32, force: bool) -> Result<ServiceReport, ServiceError> {
+        let observed_generation = self.inner.refresh_generation.load(Ordering::Acquire);
         let (go_page, records) = self.cached_values(page, force).await;
         if let (Some(go_page), Some(records)) = (go_page, records) {
             return Ok(ServiceReport {
@@ -358,7 +372,12 @@ impl UsageService {
         }
 
         let _refresh = self.inner.refresh_lock.lock().await;
-        let (mut go_page, mut records) = self.cached_values(page, force).await;
+        let force_after_wait = force_refresh_still_required(
+            force,
+            observed_generation,
+            self.inner.refresh_generation.load(Ordering::Acquire),
+        );
+        let (mut go_page, mut records) = self.cached_values(page, force_after_wait).await;
         let summary_cache_hit = go_page.is_some();
         let records_cache_hit = records.is_some();
 
@@ -432,6 +451,10 @@ impl UsageService {
             value: go_page,
         });
         insert_records_cache(&mut cache, page, records, self.inner.cache_ttl);
+        drop(cache);
+        self.inner
+            .refresh_generation
+            .fetch_add(1, Ordering::Release);
     }
 
     async fn fetch_go_page(&self) -> Result<GoPageData, ServiceError> {
@@ -555,6 +578,12 @@ impl UsageService {
             asset = %function.asset_url,
             "调用官网 Usage 页面自身的翻页通道"
         );
+        let _permit = self
+            .inner
+            .upstream_limiter
+            .acquire()
+            .await
+            .expect("upstream semaphore is never closed");
         let response = self
             .inner
             .client
@@ -583,6 +612,12 @@ impl UsageService {
     }
 
     async fn fetch_text(&self, url: &Url, max_bytes: usize) -> Result<String, ServiceError> {
+        let _permit = self
+            .inner
+            .upstream_limiter
+            .acquire()
+            .await
+            .expect("upstream semaphore is never closed");
         let response = self.inner.client.get(url.clone()).send().await?;
         if is_authentication_response(&response) {
             return Err(ServiceError::Authentication);
@@ -657,8 +692,12 @@ fn set_assets(cache: &mut CacheState, assets: Vec<Url>) {
     }
 }
 
+fn force_refresh_still_required(requested: bool, observed: u64, current: u64) -> bool {
+    requested && observed == current
+}
+
 async fn read_response_bytes(
-    response: Response,
+    mut response: Response,
     max_bytes: usize,
 ) -> Result<Vec<u8>, ServiceError> {
     if response
@@ -667,11 +706,17 @@ async fn read_response_bytes(
     {
         return Err(ServiceError::BodyTooLarge { limit: max_bytes });
     }
-    let bytes = response.bytes().await?;
-    if bytes.len() > max_bytes {
-        return Err(ServiceError::BodyTooLarge { limit: max_bytes });
+    let initial_capacity = response
+        .content_length()
+        .map_or(0, |length| (length as usize).min(max_bytes));
+    let mut bytes = Vec::with_capacity(initial_capacity);
+    while let Some(chunk) = response.chunk().await? {
+        if bytes.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(ServiceError::BodyTooLarge { limit: max_bytes });
+        }
+        bytes.extend_from_slice(&chunk);
     }
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 fn is_authentication_response(response: &Response) -> bool {
@@ -690,7 +735,16 @@ fn is_authentication_response(response: &Response) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        io::{Read, Write},
+        net::TcpListener as StdTcpListener,
+        thread,
+    };
+
     use super::*;
+
+    const GO_HTML: &str = include_str!("../tests/fixtures/go.html");
+    const USAGE_HTML: &str = include_str!("../tests/fixtures/usage.html");
 
     fn account_config(id: &str, name: &str, workspace_id: &str) -> AccountConfig {
         let mut cookie = HeaderValue::from_static("auth=test");
@@ -734,5 +788,83 @@ mod tests {
     #[test]
     fn rejects_empty_account_registry() {
         assert!(AccountRegistry::new(Vec::new()).is_err());
+    }
+
+    #[tokio::test]
+    async fn rejects_chunked_response_as_soon_as_limit_is_exceeded() {
+        let listener = StdTcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request);
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+            );
+            let _ = stream.write_all(b"A\r\n0123456789\r\n");
+            let _ = stream.write_all(b"A\r\nabcdefghij\r\n0\r\n\r\n");
+        });
+
+        let response = Client::new()
+            .get(format!("http://{address}/chunked"))
+            .send()
+            .await
+            .unwrap();
+        let error = read_response_bytes(response, 12).await.unwrap_err();
+        assert!(matches!(error, ServiceError::BodyTooLarge { limit: 12 }));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn concurrent_forced_reports_share_one_upstream_refresh() {
+        let listener = StdTcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = Vec::new();
+                loop {
+                    let mut chunk = [0_u8; 1024];
+                    let read = stream.read(&mut chunk).unwrap();
+                    if read == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&chunk[..read]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let request = String::from_utf8_lossy(&request);
+                let body = if request.contains("/workspace/wrk_test/go ") {
+                    GO_HTML
+                } else {
+                    USAGE_HTML
+                };
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(body.as_bytes());
+            }
+        });
+
+        let mut config = account_config("personal", "个人", "wrk_test");
+        config.base_url = Url::parse(&format!("http://{address}/")).unwrap();
+        let service = UsageService::new(config).unwrap();
+        let (first, second) = tokio::join!(service.report(0, true), service.report(0, true));
+        let first = first.unwrap();
+        let second = second.unwrap();
+
+        assert_ne!(first.summary_cache_hit, second.summary_cache_hit);
+        assert_ne!(first.records_cache_hit, second.records_cache_hit);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn force_refresh_generation_detects_completed_refresh() {
+        assert!(force_refresh_still_required(true, 7, 7));
+        assert!(!force_refresh_still_required(true, 7, 8));
+        assert!(!force_refresh_still_required(false, 7, 7));
     }
 }

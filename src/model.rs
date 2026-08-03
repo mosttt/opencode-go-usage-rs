@@ -14,6 +14,7 @@ pub const WEEKLY_QUOTA_USD: u32 = 30;
 pub const MONTHLY_QUOTA_USD: u32 = 60;
 /// 官网 Usage 页面当前固定使用的每页记录数。
 pub const OFFICIAL_PAGE_SIZE: usize = 50;
+const MAX_RESET_SECONDS: i64 = 366 * 24 * 60 * 60;
 
 /// Go 订阅的三个用量窗口及订阅设置。
 #[derive(Clone, Debug, Serialize)]
@@ -64,9 +65,12 @@ impl UsageWindow {
         fetched_at: DateTime<Utc>,
     ) -> Self {
         let used_percent = used_percent.min(100) as u8;
-        let resets_in_seconds = resets_in_seconds.max(0) as u64;
-        let resets_at =
-            fetched_at + TimeDelta::seconds(i64::try_from(resets_in_seconds).unwrap_or(i64::MAX));
+        let reset_seconds = resets_in_seconds.clamp(0, MAX_RESET_SECONDS);
+        let (resets_at, resets_in_seconds) = fetched_at
+            .checked_add_signed(TimeDelta::seconds(reset_seconds))
+            .map_or((fetched_at, 0), |resets_at| {
+                (resets_at, reset_seconds as u64)
+            });
         Self {
             status,
             cycle,
@@ -181,5 +185,37 @@ mod tests {
         assert_eq!(format_microcents_as_usd(73_998), "0.00073998");
         assert_eq!(format_microcents_as_usd(100_000_000), "1.0000");
         assert_eq!(format_microcents_as_usd(0), "0.0000");
+    }
+
+    #[test]
+    fn clamps_invalid_usage_window_values_without_panicking() {
+        let fetched_at = Utc::now();
+        let window = UsageWindow::new(
+            "ok".to_owned(),
+            "rolling_5_hours",
+            FIVE_HOUR_QUOTA_USD,
+            u64::MAX,
+            i64::MAX,
+            fetched_at,
+        );
+
+        assert_eq!(window.used_percent, 100);
+        assert_eq!(window.remaining_percent, 0);
+        assert_eq!(window.resets_in_seconds, MAX_RESET_SECONDS as u64);
+        assert_eq!(
+            window.resets_at,
+            fetched_at + TimeDelta::seconds(MAX_RESET_SECONDS)
+        );
+
+        let negative = UsageWindow::new(
+            "ok".to_owned(),
+            "rolling_5_hours",
+            FIVE_HOUR_QUOTA_USD,
+            0,
+            i64::MIN,
+            fetched_at,
+        );
+        assert_eq!(negative.resets_in_seconds, 0);
+        assert_eq!(negative.resets_at, fetched_at);
     }
 }

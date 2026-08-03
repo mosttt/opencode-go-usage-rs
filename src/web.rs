@@ -4,10 +4,10 @@ use std::{sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
 use salvo::{
-    affix_state,
     http::cookie::{Cookie, SameSite, time::Duration as CookieDuration},
     prelude::*,
 };
+use salvo_extra::affix_state;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -496,7 +496,26 @@ struct ErrorResponse<'a> {
 
 #[cfg(test)]
 mod tests {
+    use reqwest::{Url, header::HeaderValue as ReqwestHeaderValue};
+    use salvo::test::{ResponseExt, TestClient};
+
     use super::*;
+    use crate::config::AccountConfig;
+
+    fn test_registry() -> AccountRegistry {
+        let mut cookie = ReqwestHeaderValue::from_static("auth=test");
+        cookie.set_sensitive(true);
+        AccountRegistry::new(vec![AccountConfig {
+            id: "personal".to_owned(),
+            name: "个人".to_owned(),
+            base_url: Url::parse("http://127.0.0.1:9/").unwrap(),
+            cache_ttl: Duration::from_secs(30),
+            request_timeout: Duration::from_secs(3),
+            workspace_id: "wrk_test".to_owned(),
+            cookie,
+        }])
+        .unwrap()
+    }
 
     #[test]
     fn panel_key_verification_is_exact_and_empty_configuration_disables_auth() {
@@ -521,5 +540,94 @@ mod tests {
             derive_session_token("0123456789abcdef"),
             derive_session_token("fedcba9876543210")
         );
+    }
+
+    #[tokio::test]
+    async fn public_routes_return_health_and_browser_security_headers() {
+        let service = Service::new(router(test_registry(), Some("0123456789abcdef".to_owned())));
+
+        let mut health_response = TestClient::get("http://127.0.0.1/api/v1/health")
+            .send(&service)
+            .await;
+        assert_eq!(health_response.status_code, Some(StatusCode::OK));
+        assert_eq!(
+            health_response
+                .headers()
+                .get("cache-control")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "no-store, max-age=0"
+        );
+        let health_body: serde_json::Value = health_response.take_json().await.unwrap();
+        assert_eq!(health_body["status"], "ok");
+        assert_eq!(health_body["account_count"], 1);
+        assert_eq!(health_body["panel_auth_required"], true);
+
+        let index_response = TestClient::get("http://127.0.0.1/").send(&service).await;
+        assert_eq!(index_response.status_code, Some(StatusCode::OK));
+        assert_eq!(
+            index_response.headers().get("x-frame-options").unwrap(),
+            "DENY"
+        );
+        assert!(
+            index_response
+                .headers()
+                .get("content-security-policy")
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn protected_routes_enforce_auth_and_validate_before_upstream_calls() {
+        const PANEL_KEY: &str = "0123456789abcdef";
+        let service = Service::new(router(test_registry(), Some(PANEL_KEY.to_owned())));
+
+        let mut unauthorized = TestClient::get("http://127.0.0.1/api/v1/usage")
+            .send(&service)
+            .await;
+        assert_eq!(unauthorized.status_code, Some(StatusCode::UNAUTHORIZED));
+        let body: serde_json::Value = unauthorized.take_json().await.unwrap();
+        assert_eq!(body["error"]["code"], "panel_authentication_required");
+
+        let mut invalid = TestClient::get("http://127.0.0.1/api/v1/usage?page=10001")
+            .add_header(PANEL_KEY_HEADER, PANEL_KEY, true)
+            .send(&service)
+            .await;
+        assert_eq!(invalid.status_code, Some(StatusCode::BAD_REQUEST));
+        let body: serde_json::Value = invalid.take_json().await.unwrap();
+        assert_eq!(body["error"]["code"], "invalid_query");
+
+        let mut missing_account =
+            TestClient::get("http://127.0.0.1/api/v1/usage?account=missing&page=0")
+                .add_header(PANEL_KEY_HEADER, PANEL_KEY, true)
+                .send(&service)
+                .await;
+        assert_eq!(missing_account.status_code, Some(StatusCode::NOT_FOUND));
+        let body: serde_json::Value = missing_account.take_json().await.unwrap();
+        assert_eq!(body["error"]["code"], "account_not_found");
+    }
+
+    #[tokio::test]
+    async fn successful_login_sets_a_hardened_session_cookie() {
+        const PANEL_KEY: &str = "0123456789abcdef";
+        let service = Service::new(router(test_registry(), Some(PANEL_KEY.to_owned())));
+        let response = TestClient::post("http://127.0.0.1/api/v1/auth")
+            .add_header("x-forwarded-proto", "https", true)
+            .raw_json(format!(r#"{{"key":"{PANEL_KEY}","remember":true}}"#))
+            .send(&service)
+            .await;
+
+        assert_eq!(response.status_code, Some(StatusCode::OK));
+        let cookie = response
+            .headers()
+            .get("set-cookie")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(cookie.contains("HttpOnly"));
+        assert!(cookie.contains("SameSite=Strict"));
+        assert!(cookie.contains("Secure"));
+        assert!(cookie.contains("Max-Age="));
     }
 }

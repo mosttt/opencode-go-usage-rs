@@ -9,11 +9,17 @@ mod opencode;
 mod scrape;
 mod web;
 
+use std::time::Duration;
+
 use anyhow::Result;
 use config::Config;
 use opencode::AccountRegistry;
 use salvo::prelude::*;
+use tokio::signal;
 use tracing_subscriber::EnvFilter;
+
+const MAX_CONCURRENT_CONNECTIONS: usize = 256;
+const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -48,8 +54,38 @@ async fn main() -> Result<()> {
     }
 
     let acceptor = TcpListener::new(bind_addr.to_string()).bind().await;
-    Server::new(acceptor).serve(router).await;
+    let server = Server::new(acceptor).max_connections(MAX_CONCURRENT_CONNECTIONS);
+    let handle = server.handle();
+    tokio::spawn(async move {
+        wait_for_shutdown_signal().await;
+        tracing::info!("收到退出信号，开始优雅停止服务");
+        handle.stop_graceful(Some(GRACEFUL_SHUTDOWN_TIMEOUT));
+    });
+    server.try_serve(router).await?;
     Ok(())
+}
+
+async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        match signal::unix::signal(signal::unix::SignalKind::terminate()) {
+            Ok(mut terminate) => {
+                tokio::select! {
+                    _ = signal::ctrl_c() => {}
+                    _ = terminate.recv() => {}
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "无法注册 SIGTERM 处理器，将仅等待 Ctrl-C");
+                let _ = signal::ctrl_c().await;
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = signal::ctrl_c().await;
+    }
 }
 
 fn init_tracing() {
