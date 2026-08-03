@@ -68,7 +68,7 @@ cp config.example.json config.json
 {
   "server": {
     "panel_key": "",
-    "bind": "127.0.0.1:8787",
+    "bind": "0.0.0.0:8787",
     "cache_ttl_seconds": 30,
     "request_timeout_seconds": 15,
     "base_url": "https://opencode.ai"
@@ -89,6 +89,8 @@ cp config.example.json config.json
   ]
 }
 ```
+
+示例配置默认监听 `0.0.0.0:8787`，复制后可直接用于 Docker Compose。直接在宿主机运行二进制且不需要局域网访问时，建议改为 `127.0.0.1:8787`。
 
 `id` 可省略，服务会生成 `account-1`、`account-2`。账号 ID 仅支持 ASCII 字母、数字、下划线和连字符，且必须唯一。账号数量上限为 32。
 
@@ -126,7 +128,7 @@ openssl rand -hex 32
 
 | JSON 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `server.bind` | `127.0.0.1:8787` | Salvo 监听地址 |
+| `server.bind` | `127.0.0.1:8787` | Salvo 监听地址；示例配置为兼容容器而设置成 `0.0.0.0:8787` |
 | `server.panel_key` | 空 | 面板 Key；为空不鉴权，公网推荐至少 32 位随机值 |
 | `server.cache_ttl_seconds` | `30` | 内存缓存秒数，范围 1 到 300 |
 | `server.request_timeout_seconds` | `15` | 官网请求超时，范围 3 到 60 秒 |

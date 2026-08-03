@@ -1,7 +1,7 @@
 {
   "server": {
     "panel_key": "",
-    "bind": "127.0.0.1:8787",
+    "bind": "0.0.0.0:8787",
     "cache_ttl_seconds": 30,
     "request_timeout_seconds": 15,
     "base_url": "https://opencode.ai"
