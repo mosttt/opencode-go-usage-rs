@@ -4,7 +4,14 @@
 
 ## 部署前检查
 
-1. 服务固定读取进程工作目录中的 `config.json`，不读取命令行参数或环境变量。
+1. 首次部署先复制示例配置，再按实际情况填写账号 Cookie 和服务设置：
+
+   ```bash
+   cp config.example.json config.json
+   ```
+
+   Windows PowerShell 使用 `Copy-Item config.example.json config.json`。服务固定读取进程工作目录中的 `config.json`，不会自动创建该文件；如果文件缺失，会报“无法读取配置文件 config.json（os error 2）”。
+
 2. 公网部署必须设置非空 `server.panel_key`，推荐使用至少 32 位随机 Key：
 
    ```bash
