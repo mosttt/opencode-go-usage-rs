@@ -359,7 +359,7 @@ input_total = input + cache_read + cache_write_5m + cache_write_1h
 
 ## 开发检查
 
-`.github/workflows/ci.yml` 会在 push、pull request 和手工触发时执行 Rust 质量门禁、构建 Linux x86_64、Linux ARM64、Windows x86_64 和 macOS ARM64 二进制产物并验证 Docker 镜像构建。推送到 `main` 或 `v*.*.*` 标签时，`.github/workflows/publish-image.yml` 会将多架构镜像发布到 `ghcr.io/mosttt/opencode-go-usage-rs`。
+`.github/workflows/ci.yml` 会在 push、pull request 和手工触发时执行 Rust 质量门禁、构建 Linux x86_64、Linux ARM64、Windows x86_64 和 macOS ARM64 二进制产物并验证 Docker 镜像构建。推送 `v*.*.*` 标签时，它还会创建 GitHub Release 并附加各平台压缩包及 SHA-256 校验文件。推送到 `main` 或 `v*.*.*` 标签时，`.github/workflows/publish-image.yml` 会将多架构镜像发布到 `ghcr.io/mosttt/opencode-go-usage-rs`。
 
 ```bash
 cargo fmt --all -- --check

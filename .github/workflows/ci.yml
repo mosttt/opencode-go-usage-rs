@@ -89,9 +89,9 @@ jobs:
           tar -C dist -czf "dist/$package.tar.gz" "$package"
           rm -rf "dist/$package"
           if command -v sha256sum >/dev/null 2>&1; then
-            (cd dist && sha256sum "$package.tar.gz" > SHA256SUMS)
+            (cd dist && sha256sum "$package.tar.gz" > "$package.tar.gz.sha256")
           else
-            (cd dist && shasum -a 256 "$package.tar.gz" > SHA256SUMS)
+            (cd dist && shasum -a 256 "$package.tar.gz" > "$package.tar.gz.sha256")
           fi
       - name: Package Windows binary
         if: matrix.archive == 'zip'
@@ -106,12 +106,38 @@ jobs:
           Compress-Archive -Path $root -DestinationPath "dist/$package.zip"
           Remove-Item $root -Recurse -Force
           $hash = (Get-FileHash "dist/$package.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  $package.zip" | Set-Content "dist/SHA256SUMS"
+          "$hash  $package.zip" | Set-Content "dist/$package.zip.sha256"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: dist/
           if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    needs: binary
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: opencode-go-usage-*
+          path: dist
+          merge-multiple: true
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}"
+          dist/*
+          --repo "${GITHUB_REPOSITORY}"
+          --title "${GITHUB_REF_NAME}"
+          --generate-notes
+          --verify-tag
 
   docker:
     name: Docker image
