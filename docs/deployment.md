@@ -106,7 +106,8 @@ sudo systemctl restart opencode-go-usage
 ### Docker Compose
 
 ```bash
-LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)" docker compose up -d --build
+docker compose pull
+LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)" docker compose up -d
 docker compose logs -f dashboard
 ```
 
@@ -121,9 +122,16 @@ docker compose logs -f dashboard
 更新与停止：
 
 ```bash
-docker compose build --pull
+docker compose pull
 LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)" docker compose up -d
 docker compose down
+```
+
+默认 Compose 配置使用 GHCR 中的多架构镜像。开发时如果需要从当前源码构建，使用本地覆盖文件：
+
+```bash
+LOCAL_UID="$(id -u)" LOCAL_GID="$(id -g)" \
+  docker compose -f compose.yaml -f compose.local.yaml up -d --build
 ```
 
 若端口需要调整：

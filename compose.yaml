@@ -2,9 +2,7 @@ name: opencode-go-usage
 
 services:
   dashboard:
-    build:
-      context: .
-    image: opencode-go-usage:local
+    image: ghcr.io/mosttt/opencode-go-usage-rs:${IMAGE_TAG:-latest}
     restart: unless-stopped
     init: true
     user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"

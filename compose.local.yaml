@@ -1,0 +1,5 @@
+services:
+  dashboard:
+    build:
+      context: .
+    image: opencode-go-usage:local
