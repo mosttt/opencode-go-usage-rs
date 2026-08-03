@@ -1,6 +1,6 @@
 //! Salvo 路由、JSON 接口和内嵌仪表盘。
 
-use std::{sync::Arc, time::Duration};
+use std::{fmt::Write as _, sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
 use salvo::{
@@ -279,7 +279,12 @@ fn derive_session_token(key: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"opencode-go-usage panel session\0");
     hasher.update(key.as_bytes());
-    format!("{:x}", hasher.finalize())
+    let digest = hasher.finalize();
+    let mut token = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(&mut token, "{byte:02x}").expect("写入 String 不会失败");
+    }
+    token
 }
 
 fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
@@ -534,7 +539,7 @@ mod tests {
     fn session_token_is_stable_and_key_specific() {
         assert_eq!(
             derive_session_token("0123456789abcdef"),
-            derive_session_token("0123456789abcdef")
+            "750792abe402bcdd2a930af2dc677521b3e45f43928712cf2fdf909f0b52522b"
         );
         assert_ne!(
             derive_session_token("0123456789abcdef"),
