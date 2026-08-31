@@ -13,7 +13,7 @@ homepage = "https://github.com/mosttt/opencode-go-usage-rs"
 anyhow = "1.0.100"
 chrono = { version = "0.4.45", features = ["serde"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["http2", "json", "rustls"] }
-salvo = { version = "0.95.1", default-features = false, features = ["cookie", "http1", "server", "server-handle"] }
+salvo = { version = "0.96.0", default-features = false, features = ["cookie", "http1", "server", "server-handle"] }
 salvo_extra = { version = "0.95.1", default-features = false, features = ["affix-state"] }
 scraper = "0.27.0"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -25,7 +25,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 
 [dev-dependencies]
-salvo = { version = "0.95.1", default-features = false, features = ["test"] }
+salvo = { version = "0.96.0", default-features = false, features = ["test"] }
 
 [profile.release]
 lto = "thin"
