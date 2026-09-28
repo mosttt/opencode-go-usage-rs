@@ -1,4 +1,4 @@
-FROM rust:1.97-bookworm@sha256:77fac8b98f9f46062bb680b6d25d5bcaabfc400143952ebc572e924bcbedc3fa AS builder
+FROM rust:1.98-bookworm@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288a37b5a285fc83971e AS builder
 
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
@@ -8,7 +8,7 @@ COPY assets ./assets
 RUN cargo build --locked --release && \
     install -Dm755 target/release/opencode-go-usage /out/opencode-go-usage
 
-FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818 AS runtime
+FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS runtime
 
 RUN apt-get update && \
     apt-get install --yes --no-install-recommends ca-certificates && \
